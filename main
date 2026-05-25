@@ -1,0 +1,653 @@
+import { useState, useEffect } from "react";
+
+const STORAGE_KEY = "quit_smoking_data";
+
+const defaultGoals = [1, 15, 12, 10, 8, 6, 4, 2, 1, 0];
+
+function getWeekKey(date = new Date()) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - d.getDay());
+  return d.toISOString().split("T")[0];
+}
+
+function getTodayKey() {
+  return new Date().toISOString().split("T")[0];
+}
+
+function getDayLabel(dateStr) {
+  const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const d = new Date(dateStr + "T12:00:00");
+  return days[d.getDay()];
+}
+
+function getWeekDays(weekKey) {
+  const start = new Date(weekKey + "T12:00:00");
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(start);
+    d.setDate(d.getDate() + i);
+    return d.toISOString().split("T")[0];
+  });
+}
+
+function loadData() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : { log: {}, goal: 20, stepGoals: defaultGoals, startDate: getTodayKey() };
+  } catch {
+    return { log: {}, goal: 20, stepGoals: defaultGoals, startDate: getTodayKey() };
+  }
+}
+
+function saveData(data) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+}
+
+export default function App() {
+  const [data, setData] = useState(loadData);
+  const [view, setView] = useState("today");
+  const [animPuff, setAnimPuff] = useState(false);
+  const [setupOpen, setSetupOpen] = useState(false);
+  const [startingAmount, setStartingAmount] = useState(String(data.goal));
+
+  const today = getTodayKey();
+  const weekKey = getWeekKey();
+  const todayCount = data.log[today] || 0;
+  const dailyGoal = data.goal;
+
+  useEffect(() => {
+    saveData(data);
+  }, [data]);
+
+  function logCig() {
+    setAnimPuff(true);
+    setTimeout(() => setAnimPuff(false), 600);
+    setData(prev => ({
+      ...prev,
+      log: { ...prev.log, [today]: (prev.log[today] || 0) + 1 }
+    }));
+  }
+
+  function removeCig() {
+    if (todayCount === 0) return;
+    setData(prev => ({
+      ...prev,
+      log: { ...prev.log, [today]: prev.log[today] - 1 }
+    }));
+  }
+
+  function saveSetup() {
+    const val = parseInt(startingAmount);
+    if (!val || val < 1) return;
+    setData(prev => ({ ...prev, goal: val, startDate: today }));
+    setSetupOpen(false);
+  }
+
+  const pct = Math.min((todayCount / dailyGoal) * 100, 100);
+  const overGoal = todayCount > dailyGoal;
+  const underGoal = todayCount <= dailyGoal;
+
+  // Weekly data
+  const weekDays = getWeekDays(weekKey);
+  const weekTotal = weekDays.reduce((s, d) => s + (data.log[d] || 0), 0);
+  const weekGoalTotal = dailyGoal * 7;
+  const weekAvg = (weekTotal / 7).toFixed(1);
+  const weekSaved = Math.max(0, weekGoalTotal - weekTotal);
+
+  // All weeks for history
+  const allWeeks = [];
+  const logKeys = Object.keys(data.log).sort();
+  if (logKeys.length > 0) {
+    let wk = getWeekKey(new Date(logKeys[0] + "T12:00:00"));
+    const nowWk = getWeekKey();
+    while (wk <= nowWk) {
+      const days = getWeekDays(wk);
+      const total = days.reduce((s, d) => s + (data.log[d] || 0), 0);
+      const logged = days.filter(d => data.log[d] !== undefined).length;
+      if (logged > 0) allWeeks.push({ wk, total, days, logged });
+      const next = new Date(wk + "T12:00:00");
+      next.setDate(next.getDate() + 7);
+      wk = next.toISOString().split("T")[0];
+    }
+  }
+
+  const moneySaved = (weekSaved * 0.45).toFixed(2);
+
+  return (
+    <div style={{
+      minHeight: "100vh",
+      background: "#0a0a0f",
+      fontFamily: "'Georgia', 'Times New Roman', serif",
+      color: "#e8dcc8",
+      padding: "0 0 80px 0"
+    }}>
+      {/* Header */}
+      <div style={{
+        background: "linear-gradient(180deg, #1a1025 0%, #0a0a0f 100%)",
+        borderBottom: "1px solid #2a2035",
+        padding: "28px 24px 20px",
+        position: "sticky",
+        top: 0,
+        zIndex: 10,
+      }}>
+        <div style={{ maxWidth: 480, margin: "0 auto" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+            <div>
+              <div style={{ fontSize: 11, letterSpacing: 4, color: "#7a6a8a", textTransform: "uppercase", marginBottom: 4 }}>
+                Step-Down Tracker
+              </div>
+              <h1 style={{ margin: 0, fontSize: 26, fontWeight: 400, color: "#e8dcc8", letterSpacing: "-0.5px" }}>
+                Breaking Free
+              </h1>
+            </div>
+            <button onClick={() => setSetupOpen(true)} style={{
+              background: "transparent",
+              border: "1px solid #3a2a4a",
+              borderRadius: 8,
+              color: "#9a8aaa",
+              fontSize: 12,
+              padding: "6px 14px",
+              cursor: "pointer",
+              letterSpacing: 1,
+            }}>⚙ Setup</button>
+          </div>
+          {/* Nav */}
+          <div style={{ display: "flex", gap: 4, marginTop: 20 }}>
+            {[["today", "Today"], ["week", "This Week"], ["history", "History"]].map(([id, label]) => (
+              <button key={id} onClick={() => setView(id)} style={{
+                flex: 1,
+                background: view === id ? "#6a3a8a" : "transparent",
+                border: view === id ? "1px solid #8a5aaa" : "1px solid #2a2035",
+                borderRadius: 8,
+                color: view === id ? "#f0e8ff" : "#7a6a8a",
+                fontSize: 13,
+                padding: "8px 0",
+                cursor: "pointer",
+                transition: "all 0.2s",
+                fontFamily: "inherit",
+              }}>{label}</button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ maxWidth: 480, margin: "0 auto", padding: "24px 20px" }}>
+
+        {/* TODAY VIEW */}
+        {view === "today" && (
+          <div>
+            {/* Big counter */}
+            <div style={{
+              textAlign: "center",
+              padding: "40px 20px 32px",
+              background: "linear-gradient(135deg, #1a1025 0%, #150d20 100%)",
+              borderRadius: 20,
+              border: `1px solid ${overGoal ? "#8a3a3a" : "#2a2035"}`,
+              marginBottom: 20,
+              position: "relative",
+              overflow: "hidden",
+            }}>
+              {/* Ambient glow */}
+              <div style={{
+                position: "absolute",
+                top: "50%",
+                left: "50%",
+                transform: "translate(-50%, -50%)",
+                width: 200,
+                height: 200,
+                borderRadius: "50%",
+                background: overGoal
+                  ? "radial-gradient(circle, rgba(180,60,60,0.15) 0%, transparent 70%)"
+                  : "radial-gradient(circle, rgba(106,58,138,0.2) 0%, transparent 70%)",
+                pointerEvents: "none",
+              }} />
+              <div style={{ fontSize: 13, letterSpacing: 3, color: "#7a6a8a", textTransform: "uppercase", marginBottom: 16 }}>
+                Today's Count
+              </div>
+              <div style={{
+                fontSize: 88,
+                fontWeight: 300,
+                lineHeight: 1,
+                color: overGoal ? "#e05555" : "#e8dcc8",
+                transition: "color 0.3s",
+                letterSpacing: "-4px",
+              }}>
+                {todayCount}
+              </div>
+              <div style={{ fontSize: 14, color: "#7a6a8a", marginTop: 8 }}>
+                of <span style={{ color: "#c8b8d8" }}>{dailyGoal}</span> daily goal
+              </div>
+
+              {/* Progress bar */}
+              <div style={{
+                margin: "24px auto 0",
+                height: 6,
+                width: "80%",
+                background: "#2a2035",
+                borderRadius: 3,
+                overflow: "hidden",
+              }}>
+                <div style={{
+                  height: "100%",
+                  width: `${pct}%`,
+                  background: overGoal
+                    ? "linear-gradient(90deg, #8a3a3a, #e05555)"
+                    : pct > 75
+                    ? "linear-gradient(90deg, #8a5a2a, #d4954a)"
+                    : "linear-gradient(90deg, #4a2a6a, #8a5aaa)",
+                  borderRadius: 3,
+                  transition: "width 0.4s ease, background 0.3s",
+                }} />
+              </div>
+
+              <div style={{ marginTop: 10, fontSize: 13, color: overGoal ? "#e05555" : underGoal && todayCount === dailyGoal ? "#7acc7a" : "#7a6a8a" }}>
+                {overGoal
+                  ? `${todayCount - dailyGoal} over goal — try to stop here`
+                  : todayCount === dailyGoal
+                  ? "At your limit — great discipline!"
+                  : `${dailyGoal - todayCount} remaining before limit`}
+              </div>
+            </div>
+
+            {/* Buttons */}
+            <div style={{ display: "flex", gap: 12, marginBottom: 20 }}>
+              <button onClick={logCig} style={{
+                flex: 3,
+                background: animPuff
+                  ? "linear-gradient(135deg, #8a5aaa, #6a3a8a)"
+                  : "linear-gradient(135deg, #6a3a8a, #4a2a6a)",
+                border: "1px solid #8a5aaa",
+                borderRadius: 14,
+                color: "#f0e8ff",
+                fontSize: 18,
+                padding: "20px",
+                cursor: "pointer",
+                fontFamily: "inherit",
+                transition: "all 0.15s",
+                transform: animPuff ? "scale(0.97)" : "scale(1)",
+                letterSpacing: 1,
+              }}>
+                🚬 Smoked One
+              </button>
+              <button onClick={removeCig} disabled={todayCount === 0} style={{
+                flex: 1,
+                background: "transparent",
+                border: "1px solid #3a2a4a",
+                borderRadius: 14,
+                color: todayCount === 0 ? "#3a2a4a" : "#9a8aaa",
+                fontSize: 20,
+                cursor: todayCount === 0 ? "default" : "pointer",
+                fontFamily: "inherit",
+              }}>↩</button>
+            </div>
+
+            {/* Mini streaks */}
+            <div style={{
+              background: "#120d1a",
+              border: "1px solid #2a2035",
+              borderRadius: 14,
+              padding: "18px 20px",
+            }}>
+              <div style={{ fontSize: 11, letterSpacing: 3, color: "#5a4a6a", textTransform: "uppercase", marginBottom: 14 }}>
+                This Week So Far
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                {weekDays.map(d => {
+                  const count = data.log[d];
+                  const isToday = d === today;
+                  const hasData = count !== undefined;
+                  const good = hasData && count <= dailyGoal;
+                  return (
+                    <div key={d} style={{ flex: 1, textAlign: "center" }}>
+                      <div style={{
+                        height: 36,
+                        borderRadius: 6,
+                        background: !hasData
+                          ? "#1a1025"
+                          : good
+                          ? "linear-gradient(180deg, #2a4a2a, #1a3a1a)"
+                          : "linear-gradient(180deg, #4a2a2a, #3a1a1a)",
+                        border: isToday ? "1px solid #8a5aaa" : "1px solid #2a2035",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: 12,
+                        color: !hasData ? "#3a2a4a" : good ? "#7acc7a" : "#e05555",
+                        marginBottom: 4,
+                      }}>
+                        {hasData ? count : "·"}
+                      </div>
+                      <div style={{ fontSize: 10, color: isToday ? "#9a7aaa" : "#4a3a5a" }}>
+                        {getDayLabel(d)}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* WEEK VIEW */}
+        {view === "week" && (
+          <div>
+            <div style={{
+              background: "linear-gradient(135deg, #1a1025, #150d20)",
+              border: "1px solid #2a2035",
+              borderRadius: 20,
+              padding: "28px 24px",
+              marginBottom: 16,
+            }}>
+              <div style={{ fontSize: 11, letterSpacing: 3, color: "#5a4a6a", textTransform: "uppercase", marginBottom: 20 }}>
+                Weekly Report
+              </div>
+              <div style={{ display: "flex", gap: 12, marginBottom: 24 }}>
+                {[
+                  { label: "Total", value: weekTotal, unit: "cigs" },
+                  { label: "Daily Avg", value: weekAvg, unit: "/day" },
+                  { label: "Saved", value: weekSaved, unit: "not smoked" },
+                ].map(({ label, value, unit }) => (
+                  <div key={label} style={{
+                    flex: 1,
+                    background: "#0d0a14",
+                    border: "1px solid #2a2035",
+                    borderRadius: 12,
+                    padding: "14px 12px",
+                    textAlign: "center",
+                  }}>
+                    <div style={{ fontSize: 24, fontWeight: 300, color: "#e8dcc8", marginBottom: 2 }}>{value}</div>
+                    <div style={{ fontSize: 10, color: "#5a4a6a", letterSpacing: 1 }}>{unit}</div>
+                    <div style={{ fontSize: 11, color: "#7a6a8a", marginTop: 4 }}>{label}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Bar chart */}
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 80 }}>
+                  {weekDays.map(d => {
+                    const count = data.log[d] || 0;
+                    const maxVal = Math.max(dailyGoal * 1.5, ...weekDays.map(x => data.log[x] || 0));
+                    const h = maxVal > 0 ? Math.max(4, (count / maxVal) * 72) : 4;
+                    const overGoalDay = count > dailyGoal;
+                    return (
+                      <div key={d} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                        <div style={{ fontSize: 10, color: "#7a6a8a" }}>{count || ""}</div>
+                        <div style={{
+                          width: "100%",
+                          height: h,
+                          borderRadius: "4px 4px 0 0",
+                          background: d === today
+                            ? "linear-gradient(180deg, #9a6aaa, #6a3a8a)"
+                            : overGoalDay
+                            ? "linear-gradient(180deg, #d05050, #8a3030)"
+                            : count > 0
+                            ? "linear-gradient(180deg, #4a7a4a, #2a5a2a)"
+                            : "#1a1025",
+                          border: d === today ? "1px solid #8a5aaa" : "1px solid #2a2035",
+                        }} />
+                        <div style={{ fontSize: 10, color: d === today ? "#9a7aaa" : "#4a3a5a" }}>
+                          {getDayLabel(d)}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {/* Goal line label */}
+                <div style={{ textAlign: "right", fontSize: 10, color: "#5a4a6a", marginTop: 4 }}>
+                  goal: {dailyGoal}/day
+                </div>
+              </div>
+            </div>
+
+            {/* Money saved card */}
+            <div style={{
+              background: "linear-gradient(135deg, #0d1a0d, #0a140a)",
+              border: "1px solid #1a3a1a",
+              borderRadius: 16,
+              padding: "20px 24px",
+              marginBottom: 16,
+              display: "flex",
+              alignItems: "center",
+              gap: 16,
+            }}>
+              <div style={{ fontSize: 32 }}>💰</div>
+              <div>
+                <div style={{ fontSize: 22, color: "#7acc7a", fontWeight: 300 }}>${moneySaved} saved</div>
+                <div style={{ fontSize: 12, color: "#4a6a4a", marginTop: 2 }}>
+                  Est. this week vs your starting goal ({weekSaved} cigs × $0.45)
+                </div>
+              </div>
+            </div>
+
+            {/* Step-down plan */}
+            <div style={{
+              background: "#120d1a",
+              border: "1px solid #2a2035",
+              borderRadius: 16,
+              padding: "20px 24px",
+            }}>
+              <div style={{ fontSize: 11, letterSpacing: 3, color: "#5a4a6a", textTransform: "uppercase", marginBottom: 16 }}>
+                Step-Down Plan
+              </div>
+              {defaultGoals.map((g, i) => {
+                const isCurrent = g === dailyGoal;
+                const isPast = g > dailyGoal;
+                return (
+                  <div key={i} style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 12,
+                    padding: "10px 0",
+                    borderBottom: i < defaultGoals.length - 1 ? "1px solid #1a1525" : "none",
+                    opacity: isPast ? 0.4 : 1,
+                  }}>
+                    <div style={{
+                      width: 28,
+                      height: 28,
+                      borderRadius: "50%",
+                      background: isPast ? "#2a4a2a" : isCurrent ? "#6a3a8a" : "#1a1025",
+                      border: isCurrent ? "2px solid #8a5aaa" : "1px solid #2a2035",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontSize: 12,
+                      color: isPast ? "#7acc7a" : isCurrent ? "#f0e8ff" : "#4a3a5a",
+                      flexShrink: 0,
+                    }}>
+                      {isPast ? "✓" : i + 1}
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <span style={{ color: isCurrent ? "#e8dcc8" : "#7a6a8a", fontSize: 14 }}>
+                        {g === 0 ? "🎉 Smoke-free!" : `${g} cigarettes / day`}
+                      </span>
+                    </div>
+                    {isCurrent && (
+                      <div style={{
+                        background: "#3a1a5a",
+                        border: "1px solid #6a3a8a",
+                        borderRadius: 6,
+                        padding: "2px 10px",
+                        fontSize: 10,
+                        color: "#c8a8e8",
+                        letterSpacing: 1,
+                      }}>CURRENT</div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* HISTORY VIEW */}
+        {view === "history" && (
+          <div>
+            {allWeeks.length === 0 ? (
+              <div style={{
+                textAlign: "center",
+                padding: "60px 20px",
+                color: "#4a3a5a",
+              }}>
+                <div style={{ fontSize: 40, marginBottom: 16 }}>📋</div>
+                <div style={{ fontSize: 16 }}>No history yet.</div>
+                <div style={{ fontSize: 13, marginTop: 8 }}>Start logging cigarettes on the Today tab.</div>
+              </div>
+            ) : (
+              [...allWeeks].reverse().map(({ wk, total, days }) => {
+                const weekStart = new Date(wk + "T12:00:00");
+                const weekEnd = new Date(wk + "T12:00:00");
+                weekEnd.setDate(weekEnd.getDate() + 6);
+                const label = `${weekStart.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${weekEnd.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
+                const avg = (total / 7).toFixed(1);
+                const isCurrentWeek = wk === weekKey;
+                const saved = Math.max(0, dailyGoal * 7 - total);
+                return (
+                  <div key={wk} style={{
+                    background: "linear-gradient(135deg, #1a1025, #150d20)",
+                    border: isCurrentWeek ? "1px solid #6a3a8a" : "1px solid #2a2035",
+                    borderRadius: 16,
+                    padding: "20px",
+                    marginBottom: 14,
+                  }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+                      <div>
+                        <div style={{ fontSize: 13, color: "#c8b8d8", marginBottom: 2 }}>{label}</div>
+                        <div style={{ fontSize: 11, color: "#5a4a6a", letterSpacing: 2 }}>
+                          {isCurrentWeek ? "CURRENT WEEK" : "COMPLETED"}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <div style={{ fontSize: 22, fontWeight: 300, color: "#e8dcc8" }}>{total}</div>
+                        <div style={{ fontSize: 10, color: "#5a4a6a" }}>total</div>
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      {days.map(d => {
+                        const count = data.log[d];
+                        const hasData = count !== undefined;
+                        const good = hasData && count <= dailyGoal;
+                        return (
+                          <div key={d} style={{ flex: 1, textAlign: "center" }}>
+                            <div style={{
+                              height: 30,
+                              borderRadius: 5,
+                              background: !hasData
+                                ? "#1a1025"
+                                : good
+                                ? "#1a3a1a"
+                                : "#3a1a1a",
+                              border: d === today ? "1px solid #8a5aaa" : "1px solid #2a2035",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              fontSize: 11,
+                              color: !hasData ? "#3a2a4a" : good ? "#7acc7a" : "#e07070",
+                              marginBottom: 3,
+                            }}>
+                              {hasData ? count : "·"}
+                            </div>
+                            <div style={{ fontSize: 9, color: "#3a2a4a" }}>{getDayLabel(d)}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+                      <div style={{ flex: 1, background: "#0d0a14", borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
+                        <div style={{ fontSize: 14, color: "#c8b8d8" }}>{avg}</div>
+                        <div style={{ fontSize: 9, color: "#4a3a5a", letterSpacing: 1 }}>AVG/DAY</div>
+                      </div>
+                      <div style={{ flex: 1, background: "#0d0a14", borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
+                        <div style={{ fontSize: 14, color: "#7acc7a" }}>{saved}</div>
+                        <div style={{ fontSize: 9, color: "#4a3a5a", letterSpacing: 1 }}>SAVED</div>
+                      </div>
+                      <div style={{ flex: 1, background: "#0d0a14", borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
+                        <div style={{ fontSize: 14, color: "#c8b8d8" }}>${(saved * 0.45).toFixed(2)}</div>
+                        <div style={{ fontSize: 9, color: "#4a3a5a", letterSpacing: 1 }}>MONEY</div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Setup Modal */}
+      {setupOpen && (
+        <div style={{
+          position: "fixed",
+          inset: 0,
+          background: "rgba(0,0,0,0.8)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 100,
+          padding: 20,
+        }} onClick={() => setSetupOpen(false)}>
+          <div style={{
+            background: "#1a1025",
+            border: "1px solid #4a3a5a",
+            borderRadius: 20,
+            padding: "32px 28px",
+            width: "100%",
+            maxWidth: 380,
+          }} onClick={e => e.stopPropagation()}>
+            <h2 style={{ margin: "0 0 8px", fontWeight: 400, fontSize: 22, color: "#e8dcc8" }}>Setup</h2>
+            <p style={{ margin: "0 0 24px", fontSize: 13, color: "#7a6a8a", lineHeight: 1.6 }}>
+              Set your current daily cigarette count. The tracker will use this as your starting goal to step down from.
+            </p>
+            <label style={{ fontSize: 12, letterSpacing: 2, color: "#7a6a8a", display: "block", marginBottom: 8 }}>
+              DAILY CIGARETTES (CURRENT)
+            </label>
+            <input
+              type="number"
+              min="1"
+              max="100"
+              value={startingAmount}
+              onChange={e => setStartingAmount(e.target.value)}
+              style={{
+                width: "100%",
+                boxSizing: "border-box",
+                background: "#0a0a0f",
+                border: "1px solid #3a2a4a",
+                borderRadius: 10,
+                color: "#e8dcc8",
+                fontSize: 20,
+                padding: "14px 16px",
+                fontFamily: "inherit",
+                marginBottom: 20,
+                outline: "none",
+              }}
+            />
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setSetupOpen(false)} style={{
+                flex: 1,
+                background: "transparent",
+                border: "1px solid #3a2a4a",
+                borderRadius: 10,
+                color: "#7a6a8a",
+                fontSize: 14,
+                padding: "12px",
+                cursor: "pointer",
+                fontFamily: "inherit",
+              }}>Cancel</button>
+              <button onClick={saveSetup} style={{
+                flex: 2,
+                background: "linear-gradient(135deg, #6a3a8a, #4a2a6a)",
+                border: "1px solid #8a5aaa",
+                borderRadius: 10,
+                color: "#f0e8ff",
+                fontSize: 14,
+                padding: "12px",
+                cursor: "pointer",
+                fontFamily: "inherit",
+              }}>Save Goal</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
